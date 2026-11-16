@@ -1,0 +1,43 @@
+=== Client message ===
+I'm 58 and have about $900k saved for retirement. I want to retire at 63 and spend around $55k a year. I expect about $2,000 a month from Social Security, and I'm invested roughly 60/40 stocks and bonds.
+
+=== Prompt 1 (parse) ===
+Extract retirement-planning inputs from the client's message. Return ONLY a JSON object:
+{"current_age": int, "retirement_age": int, "savings": number (US dollars),
+  "annual_spending": number (US dollars per year), "social_security": number (US dollars per YEAR),
+  "stock_share": number between 0 and 1}
+Convert monthly amounts to yearly and "k" to thousands. Use null for anything the client did not say.
+Do not calculate anything else.
+
+Client message: I'm 58 and have about $900k saved for retirement. I want to retire at 63 and spend around $55k a year. I expect about $2,000 a month from Social Security, and I'm invested roughly 60/40 stocks and bonds.
+
+=== LLM output 1 ===
+{
+  "current_age": 58,
+  "retirement_age": 63,
+  "savings": 900000,
+  "annual_spending": 55000,
+  "social_security": 24000,
+  "stock_share": 0.6
+}
+match known answers: True
+
+=== Simulation results (Python) ===
+{
+  "years_planned": 32,
+  "success_rate_pct": 95.0,
+  "max_safe_spending_at_85pct": 61300,
+  "ending_balance_10th_pct": 191000,
+  "ending_balance_median": 1457000,
+  "ending_balance_90th_pct": 4527000,
+  "run_out_year_in_worst_10pct_of_failures": 23
+}
+
+=== LLM output 2 (summary) ===
+The simulation shows a 95.0% success rate over 32 years of retirement.  
+The median ending balance is 1457000, with a 10th‑percentile balance of 191000 and a 90th‑percentile balance of 4527000.  
+The maximum safe annual spending at an 85% confidence level is 61300, and in the worst 10% of failures the account would run out by year 23.
+
+=== Number check ===
+numbers found: [95.0, 32.0, 1457000.0, 10.0, 191000.0, 90.0, 4527000.0, 85.0, 61300.0, 10.0, 23.0]
+not from the model: []

@@ -1,0 +1,4 @@
+AI accuracy tests, model openai/gpt-oss-20b via Groq, run 2026-11-14 17:00
+Test 1  Input parsing: 20 of 20 descriptions fully right (140 of 140 fields). Goal 18+: PASS
+Test 2  Summary numbers: 20 of 20 summaries had no invented numbers (234 of 234 numbers matched the model). Goal 100%: PASS
+        Summaries that state both the chance of success and the highest safe spending: 20 of 20

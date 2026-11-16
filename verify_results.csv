@@ -1,0 +1,21 @@
+check,result,detail
+Hand calculation (2-year path),PASS,"model $71,200.00 vs. by hand $71,200.00"
+$0 spending always succeeds,PASS,success 100.0%
+More spending never raises success,PASS,"$40k: 100.0%, $60k: 98.8%, $80k: 77.4%, $100k: 38.7%, $120k: 12.7%"
+More savings never lowers success,PASS,"$0.8M: 38.0%, $1.0M: 66.9%, $1.2M: 85.8%, $1.4M: 94.2%"
+"Trinity Study, 50% stocks, 4% withdrawal",PASS,our model 92.3% vs. published ~95% (pass if within 5 points)
+"Trinity Study, 75% stocks, 4% withdrawal",PASS,our model 92.6% vs. published ~95% (pass if within 5 points)
+"Stable across 5 random seeds (10,000 paths)",FAIL,success at $75k ranges 85.5% to 86.5% (1.00 points)
+"Stable across 5 random seeds (25,000 paths)",PASS,success at $75k ranges 85.8% to 86.2% (0.49 points)
+"Backtest 1929 start, 5% withdrawal flagged high risk",PASS,money ran out in year 23 (1951)
+"Backtest 1966 start, 5% withdrawal flagged high risk",PASS,money ran out in year 18 (1983)
+"Backtest 2000 start, 5% withdrawal flagged high risk",PASS,money ran out in year 25 (2024)
+App engine matches simulate.py (no saving years),PASS,"success 98.79% both; highest safe $75,473 vs. $75,473"
+Higher tax never raises success,PASS,"0% tax: 86.6%, 10% tax: 79.6%, 20% tax: 69.0%, 30% tax: 55.9%"
+Worse future (lower stock returns) never raises success,PASS,"-0 pts: 86.6%, -1 pts: 79.8%, -2 pts: 71.1%, -3 pts: 61.6%"
+Saving more before retiring never lowers success,PASS,"$0k/yr: 79.7%, $10k/yr: 83.5%, $20k/yr: 86.6%, $40k/yr: 91.3%"
+"Social Security above spending: nothing withdrawn, nothing extra added",PASS,balances identical to the $0-spending plan (bug found and fixed in stress.py)
+Input checks stop impossible inputs,PASS,5 of 5 impossible inputs stopped; the normal plan runs
+LTCMA forecast: compound averages match J.P. Morgan's numbers,PASS,"stocks 7.50% (target 7.5%), bonds 4.60% (target 4.6%); history was 10.02% and 4.53%"
+LTCMA forecast keeps the real ups and downs,PASS,stock volatility 19.4% both; worst year still 1931; inflation unchanged
+Lower forecast returns lower the chance of success,PASS,same client: 86.6% on history vs. 66.9% on the J.P. Morgan forecast

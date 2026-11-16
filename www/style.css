@@ -1,0 +1,74 @@
+/* Retirement Stress Test - private-bank style theme (deep navy, warm bronze, serif headings) */
+:root {
+  --navy: #0F2236; --navy-2: #1C3550; --ink: #23303D; --muted: #6B7480;
+  --bronze: #8C6A47; --bronze-2: #B4936D; --bronze-soft: #F3ECE3;
+  --paper: #F7F5F1; --line: #E4DED4; --good: #2E6B4F; --bad: #A3412F; --warn: #8A6A12;
+  --serif: Georgia, "Times New Roman", serif;
+  --sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+body { background: var(--paper); color: var(--ink); font-family: var(--sans); }
+.bslib-sidebar-layout, .bslib-page-main { background: var(--paper) !important; }
+
+/* top bar */
+.navbar { background: var(--navy) !important; border-bottom: 3px solid var(--bronze); padding: 14px 8px; }
+.navbar .bslib-page-title { color: #fff !important; font-family: var(--serif); font-size: 1.45rem; letter-spacing: .3px; margin: 0; }
+.navbar .bslib-page-title .tagline { display: block; font-family: var(--sans); font-size: .68rem; letter-spacing: 2.4px;
+  text-transform: uppercase; color: var(--bronze-2); margin-top: 3px; font-weight: 600; }
+
+/* sidebar */
+.bslib-sidebar-layout > .sidebar { background: #fff !important; border-right: 1px solid var(--line) !important; }
+.section-label { font-size: .68rem; letter-spacing: 2px; text-transform: uppercase; color: var(--bronze);
+  font-weight: 700; margin: 6px 0 2px; border-bottom: 1px solid var(--line); padding-bottom: 5px; }
+.sidebar .form-label, .sidebar label { font-size: .82rem; color: var(--ink); font-weight: 600; }
+.form-control { border-radius: 2px; border-color: #CFC8BC; font-size: .9rem; }
+.form-control:focus { border-color: var(--bronze); box-shadow: 0 0 0 .15rem rgba(140,106,71,.18); }
+.irs--shiny .irs-bar, .irs--shiny .irs-single { background: var(--navy) !important; border-color: var(--navy) !important; }
+.irs--shiny .irs-handle { border-color: var(--navy) !important; }
+
+/* buttons */
+.btn { border-radius: 2px; font-weight: 600; letter-spacing: .4px; }
+.btn-primary { background: var(--navy) !important; border-color: var(--navy) !important; }
+.btn-primary:hover { background: var(--navy-2) !important; }
+.btn-outline-primary, .btn-outline-secondary { color: var(--bronze) !important; border-color: var(--bronze) !important; background: #fff !important; }
+.btn-outline-primary:hover, .btn-outline-secondary:hover { background: var(--bronze-soft) !important; }
+
+/* page header */
+.page-head h2 { font-family: var(--serif); color: var(--navy); font-size: 1.7rem; margin: 4px 0 2px; }
+.page-head .sub { color: var(--muted); font-size: .9rem; }
+
+/* metric cards */
+.bslib-value-box { background: #fff !important; border: 1px solid var(--line) !important; border-top: 3px solid var(--bronze) !important;
+  border-radius: 2px !important; box-shadow: none !important; }
+.bslib-value-box .value-box-title p { font-size: .7rem; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 0; }
+.bslib-value-box .value-box-value { font-family: var(--serif); color: var(--navy); font-size: 2.1rem; }
+
+/* cards + tabs */
+.card { border-radius: 2px !important; border-color: var(--line) !important; box-shadow: none !important; }
+.card-header { background: #fff !important; font-family: var(--serif); color: var(--navy); font-size: 1.05rem; border-bottom: 1px solid var(--line) !important; }
+.nav-tabs .nav-link { color: var(--muted); border: none; font-weight: 600; font-size: .88rem; }
+.nav-tabs .nav-link.active { color: var(--navy) !important; border: none; border-bottom: 3px solid var(--bronze) !important; background: transparent !important; }
+.card-header-tabs { border-bottom: none; }
+
+/* messages */
+.msg-bad { color: var(--bad); font-size: .82rem; margin: 2px 0; }
+.msg-warn { color: var(--warn); font-size: .82rem; margin: 2px 0; }
+.msg-ok { color: var(--bronze); font-size: .82rem; margin: 4px 0; }
+.check-pass { color: var(--good); font-weight: 600; font-size: .9rem; }
+.check-fail { color: var(--bad); font-weight: 600; font-size: .9rem; }
+.summary-text { font-family: var(--serif); font-size: 1.02rem; line-height: 1.55; color: var(--ink); }
+.disclaimer { color: var(--muted); font-size: .74rem; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 6px; }
+table { font-size: .9rem; }
+
+/* fixes */
+.navbar .navbar-brand, .navbar .navbar-brand > span { color: #fff !important; display: block; white-space: normal; }
+.navbar .navbar-brand .tagline { color: var(--bronze-2) !important; }
+.nav-underline .nav-link, .card-header .nav-link { font-family: var(--sans) !important; font-size: .88rem; font-weight: 600; color: var(--muted); }
+.nav-underline .nav-link.active { color: var(--navy) !important; border-bottom-color: var(--bronze) !important; border-bottom-width: 3px; }
+.navbar .brand { color: #fff !important; font-family: var(--serif); font-size: 1.45rem; letter-spacing: .3px; display: block; line-height: 1.2; }
+.navbar .brand .tagline { display: block; font-family: var(--sans); font-size: .68rem; letter-spacing: 2.4px;
+  text-transform: uppercase; color: var(--bronze-2) !important; margin-top: 4px; font-weight: 600; }
+.bslib-value-box { box-shadow: inset 0 3px 0 var(--bronze) !important; }
+
+.msg-note { color: var(--muted); font-size: .74rem; line-height: 1.35; margin: 2px 0 8px; }
+.shiny-input-radiogroup .form-check-input:checked { background-color: var(--navy); border-color: var(--navy); }
+.irs--shiny .irs-handle { background: var(--navy) !important; border-color: var(--navy) !important; }

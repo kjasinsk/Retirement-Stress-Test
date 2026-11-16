@@ -1,0 +1,37 @@
+Year
+S&P 500 (includes dividends)
+US Small cap (bottom decile)
+3-month T.Bill
+US T. Bond (10-year)
+Baa Corporate Bond
+Real Estate
+Gold*
+S&P 500 (includes dividends)3
+US Small cap (bottom decile) Cum Value
+3-month T.Bill4
+US T. Bond5
+Baa Corporate Bond2
+Real Estate2
+Gold2
+Stocks - Bills
+Stocks - Bonds
+Small Cap Premium (S&P 500 minus Bottom Decile)
+Stocks - Baa Corp Bond
+Historical ERP
+Inflation Rate
+S&P 500 (includes dividends)2
+US Small cap (bottom decile)22
+3-month T. Bill (Real)
+!0-year T.Bonds
+Baa Corp Bonds
+Real Estate3
+Gold
+S&P 500 (includes dividends)3
+US Small cap (bottom decile)22
+3-month T.Bill4
+US T. Bond5
+Baa Corporate Bond2
+Real Estate2
+Gold2
+Stocks minus T. Bills
+Stocks minus T.Bonds

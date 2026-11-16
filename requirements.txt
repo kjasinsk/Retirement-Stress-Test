@@ -1,0 +1,7 @@
+shiny>=1.5
+numpy>=1.26
+pandas>=2.1
+plotly>=5.20
+python-dotenv>=1.0
+langchain-core>=0.3
+langchain-groq>=0.3
