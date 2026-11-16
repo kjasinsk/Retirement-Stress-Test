@@ -1,10 +1,10 @@
 @echo off
-rem Double-click to save the app to https://github.com/kjasinsk/retirement-stress-test
+rem Double-click to save the app to https://github.com/kjasinsk/Retirement-Stress-Test
 rem (Posit Connect Cloud republishes automatically after each push)
 cd /d "%~dp0"
 set GIT=git
 where git >nul 2>&1 || set GIT="C:\Program Files\Git\cmd\git.exe"
-set URL=https://github.com/kjasinsk/retirement-stress-test.git
+set URL=https://github.com/kjasinsk/Retirement-Stress-Test.git
 set LOG=%~dp0github_log.txt
 echo ===== %date% %time% ===== > "%LOG%"
 if not exist ".git" (
