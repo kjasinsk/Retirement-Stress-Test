@@ -8,6 +8,9 @@ Same rules as simulate.py, plus the years before retirement:
   * optional "worse future": subtract a fixed amount from every year's stock return
   * optional flat tax rate on money taken out of the portfolio (withdrawal is grossed up: need / (1 - tax))
   * if Social Security covers all spending, nothing is withdrawn (the extra is NOT added to savings)
+  * optional Social Security claiming age (62-70): the benefit is entered at full retirement age (67) and moved up
+    or down with the SSA rules; checks received before retiring are added to savings
+  * optional flexible spending: after a year when the portfolio lost money, spend flex_cut % less the next year
 """
 import numpy as np
 import pandas as pd
@@ -22,6 +25,19 @@ END_AGE = 95
 LTCMA = {"edition": "J.P. Morgan 2027 Long-Term Capital Market Assumptions",
          "stocks": 0.075,     # U.S. large cap equities
          "bonds": 0.046}      # U.S. intermediate Treasuries
+
+
+FULL_RETIREMENT_AGE = 67
+
+
+def ss_factor(claim_age):
+    """Share of the full-retirement-age (67) benefit received when claiming at claim_age (SSA rules):
+    -5/9% a month for the first 36 months early, -5/12% a month beyond that (62 -> 70%); +8% a year after 67
+    up to 70 (70 -> 124%)."""
+    if claim_age < FULL_RETIREMENT_AGE:
+        months = (FULL_RETIREMENT_AGE - claim_age) * 12
+        return 1 - min(months, 36) * 5 / 900 - max(months - 36, 0) * 5 / 1200
+    return 1 + 0.08 * (min(claim_age, 70) - FULL_RETIREMENT_AGE)
 
 
 def _geo_mean(r):
@@ -53,28 +69,39 @@ def make_paths(history, years, n_paths=25_000, seed=42, stock_haircut=0.0):
 
 
 def run_plan(paths, current_age, retire_age, savings, contribution, spending, social_security, stock_share,
-             tax_rate=0.0):
-    """Year-by-year balances in today's dollars (paths x years+1), and the age money ran out (NaN = never)."""
+             tax_rate=0.0, ss_age=None, flex_cut=0.0):
+    """Year-by-year balances in today's dollars (paths x years+1), and the age money ran out (NaN = never).
+    ss_age=None: Social Security starts at retirement at the amount entered (the original rule).
+    ss_age=62..70: social_security is the benefit at 67, adjusted with ss_factor, starting at ss_age."""
     stocks, bonds, infl = paths
     n, years = stocks.shape
+    ss_start = retire_age if ss_age is None else ss_age
     bal = np.full(n, float(savings))
     add = np.full(n, float(contribution))
-    need = np.full(n, max(float(spending - social_security), 0.0) / (1 - tax_rate))  # pre-tax withdrawal
+    spend = np.full(n, float(spending))
+    ss = np.full(n, float(social_security) * (1.0 if ss_age is None else ss_factor(ss_age)))
+    down_last_year = np.zeros(n, dtype=bool)
     deflator = np.ones(n)
     ran_out_age = np.full(n, np.nan)
     real = [bal.copy()]
     for t in range(years):
         age = current_age + t
         if age < retire_age:
-            bal = bal + add
+            bal = bal + add + (ss if age >= ss_start else 0.0)   # early Social Security checks are saved
         else:
+            this_spend = np.where(down_last_year, spend * (1 - flex_cut), spend) if flex_cut else spend
+            income = ss if age >= ss_start else 0.0
+            need = np.maximum(this_spend - income, 0.0) / (1 - tax_rate)   # pre-tax withdrawal
             bal = bal - need
             broke = (bal <= 0) & np.isnan(ran_out_age)
             ran_out_age[broke] = age
             bal = np.maximum(bal, 0)
-        bal = bal * (1 + stock_share * stocks[:, t] + (1 - stock_share) * bonds[:, t] - FEE)
-        add *= 1 + infl[:, t]
-        need *= 1 + infl[:, t]
+        growth = stock_share * stocks[:, t] + (1 - stock_share) * bonds[:, t] - FEE
+        down_last_year = growth < 0
+        bal = bal * (1 + growth)
+        add = add * (1 + infl[:, t])
+        spend = spend * (1 + infl[:, t])
+        ss = ss * (1 + infl[:, t])
         deflator *= 1 + infl[:, t]
         real.append(bal / deflator)
     return np.array(real), ran_out_age
@@ -97,7 +124,7 @@ def max_safe_spending(paths, target=0.85, **plan):
 
 
 def input_problems(current_age, retire_age, savings, contribution, spending, social_security, stock_share,
-                   tax_rate=0.0):
+                   tax_rate=0.0, ss_age=None, flex_cut=0.0):
     """Check what the user typed. Returns (errors that stop the run, warnings to show)."""
     errors, warnings = [], []
     values = dict(current_age=current_age, retire_age=retire_age, savings=savings, contribution=contribution,
@@ -115,12 +142,20 @@ def input_problems(current_age, retire_age, savings, contribution, spending, soc
         errors.append("Dollar amounts can't be negative.")
     if not 0 <= tax_rate < 0.6:
         errors.append("Tax rate must be between 0% and 60%.")
+    if ss_age is not None and not 62 <= ss_age <= 70:
+        errors.append("Social Security can start between ages 62 and 70.")
+    if not 0 <= flex_cut < 1:
+        errors.append("Flexible spending cut must be between 0% and 99%.")
     if errors:
         return errors, warnings
     if savings == 0 and contribution == 0:
         warnings.append("No savings and no yearly saving: the plan depends only on Social Security.")
-    if spending <= social_security:
+    ss_paid = social_security * (1.0 if ss_age is None else ss_factor(ss_age))
+    if spending <= ss_paid:
         warnings.append("Social Security covers all of the spending, so nothing comes out of savings.")
+    if ss_age is not None and ss_age < retire_age and social_security > 0:
+        warnings.append("Social Security starts before retiring: the app adds those checks to savings "
+                        "(while working, the earnings test may hold some back).")
     if spending > 0 and savings > 0 and (spending - social_security) / savings > 0.10 and retire_age == current_age:
         warnings.append("Taking more than 10% of savings in the first year is very high; check the numbers.")
     if savings > 50_000_000 or spending > 2_000_000:

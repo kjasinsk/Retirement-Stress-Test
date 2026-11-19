@@ -10,15 +10,19 @@ from datetime import date
 
 import numpy as np
 
-from stress import END_AGE, FEE, max_safe_spending, run_plan, success
+from stress import END_AGE, FEE, max_safe_spending, run_plan, ss_factor, success
 
 
-def summarize_run(paths, plan, target=0.85, haircut=0.0, scenario=None):
+def summarize_run(paths, plan, target=0.85, haircut=0.0, scenario=None, years=(1928, 2025)):
     real, out = run_plan(paths, **plan)
     safe = max_safe_spending(paths, target=target, **plan)
     ran_out = out[~np.isnan(out)]
+    # saving years: contributions grow with inflation, so in today's dollars the total is simply amount x years
+    contrib_years = max(int(plan["retire_age"]) - int(plan["current_age"]), 0)
     return dict(plan=plan, paths=paths, real=real, out=out, success=float(np.mean(np.isnan(out))), safe=safe,
-                target=target, haircut=haircut, scenario=scenario,
+                target=target, haircut=haircut, scenario=scenario, years=tuple(years),
+                contrib_years=contrib_years, contrib_total=float(plan["contribution"]) * contrib_years,
+                retire_p50=float(np.percentile(real[contrib_years], 50)),
                 p10=float(np.percentile(real[-1], 10)), p50=float(np.percentile(real[-1], 50)),
                 p90=float(np.percentile(real[-1], 90)),
                 runout_age=int(np.percentile(ran_out, 10)) if len(ran_out) else None)
@@ -38,6 +42,17 @@ def facts_for(r):
     }
     if r["runout_age"] is not None and r["success"] < 0.999:
         facts["Among the futures where the money runs out, 1 in 10 run out by age"] = str(r["runout_age"])
+    if r.get("contrib_years"):
+        facts["Total the client puts in before retiring (today's dollars)"] = f"${r['contrib_total']:,.0f}"
+        facts["Typical savings at retirement (median, today's dollars)"] = f"${r['retire_p50']:,.0f}"
+    if tuple(r.get("years", (1928, 2025))) != (1928, 2025):
+        facts["Historical years the market futures were drawn from"] = f"{r['years'][0]}-{r['years'][1]}"
+    if plan.get("ss_age") is not None:
+        facts["Social Security starts at age"] = str(plan["ss_age"])
+        facts["Social Security per year from that age (today's dollars)"] = \
+            f"${plan['social_security'] * ss_factor(plan['ss_age']):,.0f}"
+    if plan.get("flex_cut"):
+        facts["Flexible spending: spending cut after a losing year"] = f"{plan['flex_cut']:.0%}"
     if r.get("scenario"):
         facts["Market returns assumed"] = r["scenario"]
     if plan.get("tax_rate"):
@@ -51,20 +66,30 @@ def _money(x):
     return f"${x:,.0f}"
 
 
-def report_html(r, summary=None, age_rows=None):
+def report_html(r, summary=None, age_rows=None, plans=None):
     """Self-contained HTML report a client can open or print (no internet needed)."""
     plan = r["plan"]
+    y0, y1 = r.get("years", (1928, 2025))
     rows_in = [("Current age", plan["current_age"]), ("Retirement age", plan["retire_age"]),
                ("Savings today", _money(plan["savings"])),
                ("Saving per year until retirement", _money(plan["contribution"])),
                ("Yearly spending in retirement (today's $)", _money(plan["spending"])),
-               ("Social Security per year", _money(plan["social_security"])),
+               ("Social Security per year" + (" at 67" if plan.get("ss_age") is not None else ""),
+                _money(plan["social_security"])),
+               ("Social Security starts at", f"{plan['ss_age']} ({_money(plan['social_security'] * ss_factor(plan['ss_age']))}/yr)"
+                if plan.get("ss_age") is not None else f"retirement ({plan['retire_age']})"),
+               ("Flexible spending", f"spend {plan['flex_cut']:.0%} less after a losing year" if plan.get("flex_cut")
+                else "off"),
                ("Stocks / bonds", f"{plan['stock_share']:.0%} / {1 - plan['stock_share']:.0%}"),
                ("Tax rate on withdrawals", f"{plan.get('tax_rate', 0):.0%}"),
                ("Target chance of success", f"{r['target']:.0%}"),
-               ("Market returns", r.get("scenario") or "Historical 1928-2025 averages"),
+               ("Historical years used", f"{y0}-{y1}"),
+               ("Market returns", r.get("scenario") or f"Historical {y0}-{y1} returns"),
                ("Worse-future test", f"stock returns cut {r['haircut']:.1f} points/yr" if r["haircut"] else "off")]
-    rows_out = [("Chance the money lasts to age 95", f"{r['success']:.1%}"),
+    rows_out = [("Total put in before retiring (today's $)",
+                 f"{_money(r.get('contrib_total', 0))} over {r.get('contrib_years', 0)} years"),
+                ("Typical savings at retirement (median)", _money(r.get("retire_p50", plan["savings"]))),
+                ("Chance the money lasts to age 95", f"{r['success']:.1%}"),
                 (f"Highest safe yearly spending ({r['target']:.0%} target)", _money(r["safe"])),
                 ("Money left at 95: bad future (10th pct.)", _money(r["p10"])),
                 ("Money left at 95: typical future (median)", _money(r["p50"])),
@@ -84,6 +109,9 @@ def report_html(r, summary=None, age_rows=None):
         badge = ("Number check: PASS, every number came from the model" if summary.get("bad") == []
                  else f"Number check: FAIL ({summary['bad']})" if summary.get("bad") else "")
         summary_html = f"<h2>Summary</h2><p>{html.escape(summary['text'])}</p><p class='badge'>{html.escape(badge)}</p>"
+    plans_html = ""
+    if plans is not None and len(plans):
+        plans_html = "<h2>Plans compared</h2>" + table(plans.values.tolist(), list(plans.columns))
     ages_html = ""
     if age_rows:
         cols = list(age_rows[0].keys())
@@ -108,9 +136,10 @@ def report_html(r, summary=None, age_rows=None):
 <h2>Your inputs</h2>{table(rows_in)}
 <h2>Results</h2>{table(rows_out)}
 {ages_html}
+{plans_html}
 <h2>Balance over time (today's dollars)</h2>{table(path_rows, ["Age", "Bad future (10th pct.)", "Typical (median)", "Good future (90th pct.)"])}
 <h2>How this was calculated</h2>
-<p class="note">25,000 possible market futures were built from random 5-year stretches of real 1928-2025 stock, bond and
+<p class="note">25,000 possible market futures were built from random 5-year stretches of real {y0}-{y1} stock, bond and
 inflation data (Damodaran, NYU Stern; BLS CPI-U). Each year: contributions before retiring; after retiring, spending
 minus Social Security is withdrawn (grossed up for the tax rate); both grow with inflation; {FEE:.1%} yearly fee;
 rebalanced to the stock/bond mix; plan runs to age {END_AGE}. The highest safe spending is found by binary search.

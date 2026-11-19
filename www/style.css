@@ -72,3 +72,9 @@ table { font-size: .9rem; }
 .msg-note { color: var(--muted); font-size: .74rem; line-height: 1.35; margin: 2px 0 8px; }
 .shiny-input-radiogroup .form-check-input:checked { background-color: var(--navy); border-color: var(--navy); }
 .irs--shiny .irs-handle { background: var(--navy) !important; border-color: var(--navy) !important; }
+
+.vb-note { color: var(--muted); font-size: .74rem; margin-top: 2px; }
+.irs--shiny .irs-from, .irs--shiny .irs-to { background: var(--navy) !important; }
+.plans-table td:first-child { font-weight: 600; color: var(--navy); } .plans-table { margin-top: 10px; }
+.table th, .table thead tr { text-align: left !important; }
+.nav-tabs .nav-link { padding-left: .7rem; padding-right: .7rem; }

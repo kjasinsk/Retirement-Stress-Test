@@ -18,11 +18,16 @@ from shiny import App, reactive, render, req, ui
 
 import llm_helpers
 from report import facts_for, report_html, summarize_run
-from stress import END_AGE, LTCMA, forecast_history, input_problems, make_paths, max_safe_spending, success
+from stress import (END_AGE, LTCMA, forecast_history, input_problems, make_paths, max_safe_spending, ss_factor,
+                    success)
 
 HERE = Path(__file__).parent
 HISTORY = pd.read_csv(HERE / "market_history.csv")
+FIRST_YEAR, LAST_YEAR = int(HISTORY["year"].min()), int(HISTORY["year"].max())
+MIN_WINDOW = 10   # the model stitches 5-year blocks, so keep at least 10 years to sample from
 BLUE, RED, GOLD, INK = "#0F2236", "#A3412F", "#8C6A47", "#23303D"   # navy, brick, bronze, ink
+PLAN_COLORS = [BLUE, GOLD, RED, "#2E6B4F", "#6B7480"]                 # one colour per saved plan
+MAX_PLANS = len(PLAN_COLORS)
 # Plotly's JavaScript is served from ./www, so the charts work without an internet connection
 WWW = Path(__file__).with_name("www")
 if not (WWW / "plotly.min.js").exists():
@@ -53,10 +58,12 @@ app_ui = ui.page_sidebar(
         ui.input_numeric("savings", "Savings today ($)", 900_000, step=50_000),
         ui.input_numeric("contribution", "Saving per year until retirement ($)", 20_000, step=1_000),
         ui.input_numeric("spending", "Yearly spending in retirement, today's $", 55_000, step=1_000),
-        ui.input_numeric("ss", "Social Security per year ($)", 24_000, step=1_000),
+        ui.layout_columns(ui.input_numeric("ss", "Social Security per year at 67 ($)", 24_000, step=1_000),
+                          ui.input_numeric("ss_age", "Starts at age", 67, min=62, max=70), col_widths=(7, 5)),
+        ui.output_ui("ss_note"),
         ui.div("Portfolio and assumptions", class_="section-label"),
         ui.input_radio_buttons("scenario", "Market returns", {
-            "history": "Historical (1928-2025)",
+            "history": "Historical returns",
             "ltcma": "J.P. Morgan 2027 LTCMA forecast"}, selected="history"),
         ui.panel_conditional(
             "input.scenario === 'ltcma'",
@@ -67,10 +74,15 @@ app_ui = ui.page_sidebar(
                  "U.S. large cap equities 7.5%, U.S. intermediate Treasuries 4.6%, 10-15 year compound returns. "
                  "Historical years are shifted so their averages match; crashes and swings stay.",
                  class_="msg-note")),
+        ui.input_slider("years", "Historical years to draw from", FIRST_YEAR, LAST_YEAR, (FIRST_YEAR, LAST_YEAR),
+                        step=1, sep="", drag_range=True),
+        ui.p(f"The 25,000 futures are built only from years in this window (at least {MIN_WINDOW} years).",
+             class_="msg-note"),
         ui.input_slider("stocks", "Stocks in the portfolio (%)", 0, 100, 60, step=5),
         ui.input_slider("target", "Target chance of success (%)", 70, 99, 85),
         ui.input_slider("haircut", "Worse future: cut stock returns by (points per year)", 0.0, 4.0, 0.0, step=0.5),
         ui.input_slider("tax", "Tax rate on withdrawals (%)", 0, 40, 0, step=1),
+        ui.input_slider("flex", "Flexible spending: after a losing year, spend less by (%)", 0, 30, 0, step=5),
         ui.output_ui("problems"),
         ui.input_action_button("run", "Run stress test", class_="btn-primary"),
         width=370,
@@ -80,14 +92,39 @@ app_ui = ui.page_sidebar(
         ui.value_box("Chance the money lasts to age 95", ui.output_text("vb_success")),
         ui.value_box("Highest safe yearly spending", ui.output_text("vb_safe")),
         ui.value_box("Left at 95 in a bad future (today's $)", ui.output_text("vb_bad")),
+        ui.value_box("Total put in before retiring (today's $)", ui.output_text("vb_contrib"),
+                     ui.div(ui.output_text("vb_contrib_note"), class_="vb-note")),
     ),
     ui.navset_card_underline(
         ui.nav_panel("Wealth over time", ui.output_ui("fan")),
-        ui.nav_panel("Spending vs. chance of success", ui.output_ui("curve")),
-        ui.nav_panel("Retire earlier or later", ui.output_data_frame("ages")),
+        ui.nav_panel("Range of outcomes",
+                     ui.input_radio_buttons("hist_when", None, {"end": "Money left at age 95",
+                                                                "retire": "Money at retirement"},
+                                            selected="end", inline=True),
+                     ui.output_ui("hist")),
+        ui.nav_panel("Spending vs. success", ui.output_ui("curve")),
+        ui.nav_panel("Retire earlier/later", ui.output_data_frame("ages")),
+        ui.nav_panel("Social Security", ui.output_ui("ss_timing")),
+        ui.nav_panel("Compare plans",
+                     ui.layout_columns(
+                         ui.input_text("plan_name", None, "Plan A", placeholder="Name this plan"),
+                         ui.input_action_button("save_plan", "Save current results as a plan", class_="btn-primary btn-sm"),
+                         ui.input_action_button("clear_plans", "Clear saved plans", class_="btn-outline-secondary btn-sm"),
+                         col_widths=(4, 5, 3)),
+                     ui.output_ui("plans")),
         ui.nav_panel("Methodology", ui.markdown(
             "- **Market futures:** 25,000 paths, each stitched from random 5-year stretches of real 1928-2025 "
             "stock, bond and inflation data (keeps crashes and streaks like the 1970s).\n"
+            "- **Year window:** the year slider limits which historical years the futures are drawn from (for "
+            "example 1980-2025 only). Shorter windows hold fewer crashes and booms, so results swing more.\n"
+            "- **Social Security timing:** the benefit is entered at full retirement age (67). Starting earlier "
+            "lowers it and starting later raises it, using the Social Security Administration's rules (62 = 70%, "
+            "70 = 124%). Checks received before retiring are added to savings.\n"
+            "- **Flexible spending:** after a year when the portfolio lost money, the client spends the chosen "
+            "percent less the next year, then goes back to normal. 'Highest safe spending' is the normal level.\n"
+            "- **Compare plans:** saves the inputs and results of each run so plans can be shown side by side.\n"
+            "- **Range of outcomes:** a histogram of all 25,000 futures, showing how much money is left at 95 "
+            "(or at retirement). Red is the share of futures where the money ran out.\n"
             "- **Each year:** contributions before retiring; after retiring, spending minus Social Security is "
             "withdrawn; both grow with inflation; 0.5% yearly fee; rebalanced to the stock/bond mix.\n"
             "- **J.P. Morgan forecast option:** J.P. Morgan Asset Management's 2027 Long-Term Capital Market "
@@ -145,11 +182,18 @@ def server(input, output, session):
     def current_plan():
         return dict(current_age=input.age(), retire_age=input.retire_age(), savings=input.savings(),
                     contribution=input.contribution(), spending=input.spending(), social_security=input.ss(),
-                    stock_share=input.stocks() / 100, tax_rate=input.tax() / 100)
+                    stock_share=input.stocks() / 100, tax_rate=input.tax() / 100,
+                    ss_age=input.ss_age(), flex_cut=input.flex() / 100)
 
     @reactive.calc
     def checks():
-        return input_problems(**current_plan())
+        errors, warnings = input_problems(**current_plan())
+        y0, y1 = input.years()
+        if y1 - y0 + 1 < MIN_WINDOW:
+            errors = errors + [f"Pick at least {MIN_WINDOW} historical years (now {y0}-{y1})."]
+        elif y1 - y0 + 1 < 30:
+            warnings = warnings + [f"Only {y1 - y0 + 1} years of history: fewer crashes and booms to draw from."]
+        return errors, warnings
 
     @render.ui
     def problems():
@@ -165,13 +209,17 @@ def server(input, output, session):
         req(not checks()[0])                                      # don't run on impossible inputs
         plan = current_plan()
         plan["current_age"], plan["retire_age"] = int(plan["current_age"]), int(plan["retire_age"])
-        history, scenario = HISTORY, None
+        plan["ss_age"] = int(plan["ss_age"])
+        y0, y1 = (int(y) for y in input.years())
+        history = HISTORY[HISTORY["year"].between(y0, y1)].reset_index(drop=True)
+        scenario = None
         if input.scenario() == "ltcma":
             s_ret, b_ret = (input.ltcma_stocks() or LTCMA["stocks"] * 100), (input.ltcma_bonds() or LTCMA["bonds"] * 100)
-            history = forecast_history(HISTORY, s_ret / 100, b_ret / 100)
+            history = forecast_history(history, s_ret / 100, b_ret / 100)
             scenario = f"J.P. Morgan 2027 LTCMA forecast: U.S. stocks {s_ret:.1f}%, U.S. bonds {b_ret:.1f}% a year"
         paths = make_paths(history, END_AGE - plan["current_age"], stock_haircut=input.haircut() / 100)
-        return summarize_run(paths, plan, target=input.target() / 100, haircut=input.haircut(), scenario=scenario)
+        return summarize_run(paths, plan, target=input.target() / 100, haircut=input.haircut(), scenario=scenario,
+                             years=(y0, y1))
 
     @reactive.effect
     def _reset_summary():
@@ -183,10 +231,20 @@ def server(input, output, session):
         r = sim()
         worse = f" Stock returns cut by {r['haircut']:.1f} points a year." if r["haircut"] else ""
         worse += f" Withdrawals taxed at {r['plan']['tax_rate']:.0%}." if r["plan"]["tax_rate"] else ""
-        basis = ("1928-2025 history adjusted to J.P. Morgan's 2027 forecast" if r["scenario"]
-                 else "1928-2025 history")
+        worse += f" Spending cut {r['plan']['flex_cut']:.0%} after losing years." if r["plan"]["flex_cut"] else ""
+        y0, y1 = r["years"]
+        basis = (f"{y0}-{y1} history adjusted to J.P. Morgan's 2027 forecast" if r["scenario"]
+                 else f"{y0}-{y1} history")
         return (f"25,000 market futures from {basis}, age {r['plan']['current_age']} to {END_AGE}, "
-                f"retiring at {r['plan']['retire_age']}.{worse}")
+                f"retiring at {r['plan']['retire_age']}, Social Security from {r['plan']['ss_age']}.{worse}")
+
+    @render.ui
+    def ss_note():
+        amount, age = input.ss(), input.ss_age()
+        if amount is None or age is None or not 62 <= age <= 70:
+            return None
+        return ui.p(f"Starting at {age}: ${amount * ss_factor(age):,.0f} a year ({ss_factor(age):.0%} of the "
+                    "age-67 amount), rising with inflation.", class_="msg-note")
 
     @render.text
     def vb_success():
@@ -199,6 +257,64 @@ def server(input, output, session):
     @render.text
     def vb_bad():
         return f"${sim()['p10']:,.0f}"
+
+    @render.text
+    def vb_contrib():
+        return f"${sim()['contrib_total']:,.0f}"
+
+    @render.text
+    def vb_contrib_note():
+        r = sim()
+        n = r["contrib_years"]
+        if n == 0:
+            return "Already retired: no more saving"
+        return (f"{n} years \u00d7 ${r['plan']['contribution']:,.0f}/yr \u00b7 typical balance at retirement "
+                f"${r['retire_p50']:,.0f}")
+
+    @render.ui
+    def hist():
+        r = sim()
+        n_paths = r["real"].shape[1]
+        if input.hist_when() == "retire":
+            k = r["contrib_years"]
+            if k == 0:
+                return ui.p("The client is retiring now, so every future starts retirement with today's savings.",
+                            class_="msg-note")
+            values, label = r["real"][k], f"Money at retirement (age {r['plan']['retire_age']})"
+            broke = np.zeros(n_paths, dtype=bool)
+        else:
+            values, label = r["real"][-1], f"Money left at age {END_AGE}"
+            broke = ~np.isnan(r["out"])
+        cap = max(float(np.percentile(values, 99)), 1.0)       # top 1% grouped in the last bar so the chart is readable
+        start = 0.0 if input.hist_when() == "end" else float(values.min())
+        edges = np.linspace(start, max(cap, start + 1.0), 41)
+        clipped = np.minimum(values, edges[-1])
+        ok_counts, _ = np.histogram(clipped[~broke], bins=edges)
+        broke_counts, _ = np.histogram(clipped[broke], bins=edges)
+        mids, width = (edges[:-1] + edges[1:]) / 2 / 1e6, (edges[1] - edges[0]) / 1e6
+        lo_txt = [f"${a / 1e6:.2f}M-${b / 1e6:.2f}M" for a, b in zip(edges[:-1], edges[1:])]
+        lo_txt[-1] = f"${edges[-2] / 1e6:.2f}M or more"
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=mids, y=ok_counts / n_paths * 100, width=width * 0.95, marker_color=BLUE,
+                             name="Money lasted", customdata=np.c_[lo_txt, ok_counts],
+                             hovertemplate="%{customdata[0]}: %{customdata[1]:,} futures (%{y:.1f}%)<extra></extra>"))
+        if broke.any():
+            fig.add_trace(go.Bar(x=mids, y=broke_counts / n_paths * 100, width=width * 0.95, marker_color=RED,
+                                 name=f"Ran out of money ({broke.mean():.1%})", customdata=np.c_[lo_txt, broke_counts],
+                                 hovertemplate="Ran out: %{customdata[1]:,} futures (%{y:.1f}%)<extra></extra>"))
+        p10, p50, p90 = np.percentile(values, [10, 50, 90]) / 1e6
+        top = float(max((ok_counts + broke_counts).max() / n_paths * 100, 1)) * 1.12
+        for x, name, color, h in ((p10, "bad (10th)", RED, 1.0), (p50, "median", GOLD, 0.9), (p90, "good (90th)", INK, 1.0)):
+            fig.add_trace(go.Scatter(x=[x, x], y=[0, top * h], mode="lines+text", text=["", f" {name}: ${x:.2f}M"],
+                                     textposition="top right", line=dict(color=color, dash="dot", width=1.5),
+                                     showlegend=False, hoverinfo="skip"))
+        fig.update_layout(barmode="stack", bargap=0)
+        fig.update_xaxes(title=f"{label}, $ millions in today's dollars",
+                         rangemode="tozero" if start == 0 else "normal")
+        fig.update_yaxes(title="Share of the 25,000 futures (%)", range=[0, top * 1.08])
+        return ui.div(chart(fig, height=360),
+                      ui.p(f"Each bar counts how many of the {n_paths:,} market futures end in that range. "
+                           f"The last bar groups the top 1% (${edges[-2] / 1e6:.2f}M or more).", class_="msg-note"))
 
     @render.ui
     def fan():
@@ -263,6 +379,105 @@ def server(input, output, session):
     def ages():
         return render.DataGrid(pd.DataFrame(age_rows()), width="100%")
 
+    # ---- Social Security timing: same market futures, every claiming age from 62 to 70 ----
+    @reactive.calc
+    def ss_rows():
+        r = sim()
+        rows = []
+        for age in range(62, 71):
+            plan = dict(r["plan"], ss_age=age)
+            rows.append({"age": age, "benefit": r["plan"]["social_security"] * ss_factor(age),
+                         "success": success(r["paths"], **plan),
+                         "safe": max_safe_spending(r["paths"], target=r["target"], **plan)})
+        return rows
+
+    @render.ui
+    def ss_timing():
+        r, rows = sim(), ss_rows()
+        best = max(rows, key=lambda x: x["safe"])
+        table = pd.DataFrame([{
+            "Start Social Security at": f"{x['age']}" + ("  (your plan)" if x["age"] == r["plan"]["ss_age"] else ""),
+            "Yearly benefit (today's $)": f"${x['benefit']:,.0f}",
+            "Chance the money lasts": f"{x['success']:.1%}",
+            f"Highest safe spending ({r['target']:.0%} target)": f"${x['safe']:,.0f}"} for x in rows])
+        fig = go.Figure(go.Bar(x=[x["age"] for x in rows], y=[x["safe"] for x in rows],
+                               marker_color=[GOLD if x["age"] == best["age"] else
+                                             (RED if x["age"] == r["plan"]["ss_age"] else BLUE) for x in rows],
+                               hovertemplate="Start at %{x}: $%{y:,.0f} a year<extra></extra>"))
+        fig.update_xaxes(title="Age Social Security starts", dtick=1)
+        fig.update_yaxes(title="Highest safe yearly spending", tickprefix="$", tickformat=",.0f",
+                         range=[min(x["safe"] for x in rows) * 0.9, best["safe"] * 1.03])
+        return ui.div(
+            ui.p(f"Best start age for safe spending: {best['age']} (${best['safe']:,.0f} a year, gold bar). "
+                 "Your plan is red. Same 25,000 market futures for every age.", class_="msg-note"),
+            chart(fig, height=280),
+            ui.HTML(table.to_html(index=False, classes="table table-sm", border=0)))
+
+    # ---- Compare plans: save each run's inputs and results, then show them side by side ----
+    saved_plans = reactive.value([])
+
+    @reactive.effect
+    @reactive.event(input.save_plan)
+    def _save_plan():
+        r, plans = sim(), list(saved_plans())
+        if len(plans) >= MAX_PLANS:
+            plans = plans[1:]                                     # keep the most recent plans only
+        pl = r["plan"]
+        name = (input.plan_name() or "").strip() or f"Plan {chr(65 + len(plans))}"
+        y0, y1 = r["years"]
+        plans.append({
+            "name": name,
+            "ages": pl["current_age"] + np.arange(r["real"].shape[0]),
+            "p50": np.percentile(r["real"], 50, axis=1), "p10": np.percentile(r["real"], 10, axis=1),
+            "rows": {
+                "Retire at": str(pl["retire_age"]),
+                "Yearly spending (today's $)": f"${pl['spending']:,.0f}",
+                "Saving per year until retirement": f"${pl['contribution']:,.0f}",
+                "Social Security starts at": f"{pl['ss_age']} (${pl['social_security'] * ss_factor(pl['ss_age']):,.0f}/yr)",
+                "Stocks / bonds": f"{pl['stock_share']:.0%} / {1 - pl['stock_share']:.0%}",
+                "Flexible spending cut": f"{pl['flex_cut']:.0%}" if pl["flex_cut"] else "off",
+                "Market returns": ("J.P. Morgan forecast" if r["scenario"] else "History") + f", {y0}-{y1}",
+                "Worse future / tax": (f"-{r['haircut']:.1f} pts" if r["haircut"] else "off") + f" / {pl['tax_rate']:.0%}",
+                "Chance the money lasts to 95": f"{r['success']:.1%}",
+                f"Highest safe spending": f"${r['safe']:,.0f} ({r['target']:.0%} target)",
+                "Total put in before retiring": f"${r['contrib_total']:,.0f}",
+                "Left at 95: bad future (10th pct.)": f"${r['p10']:,.0f}",
+                "Left at 95: typical (median)": f"${r['p50']:,.0f}"}})
+        saved_plans.set(plans)
+        ui.update_text("plan_name", value=f"Plan {chr(65 + len(plans))}")
+
+    @reactive.effect
+    @reactive.event(input.clear_plans)
+    def _clear_plans():
+        saved_plans.set([])
+        ui.update_text("plan_name", value="Plan A")
+
+    def plans_table(plans):
+        names = [p["name"] for p in plans]
+        rows = list(plans[0]["rows"].keys())
+        return pd.DataFrame({"": rows, **{n: [p["rows"].get(k, "") for k in rows] for n, p in zip(names, plans)}})
+
+    @render.ui
+    def plans():
+        plans = saved_plans()
+        if not plans:
+            return ui.p("Run the stress test, then press 'Save current results as a plan'. Change the inputs "
+                        "(for example retire 2 years later), run again and save again to compare.",
+                        class_="msg-note", style="margin-top: 10px;")
+        fig = go.Figure()
+        for p, color in zip(plans, PLAN_COLORS):
+            fig.add_trace(go.Scatter(x=p["ages"], y=p["p50"] / 1e6, name=f"{p['name']}: typical",
+                                     line=dict(color=color, width=3),
+                                     hovertemplate="Age %{x}: $%{y:.2f}M<extra>" + p["name"] + " median</extra>"))
+            fig.add_trace(go.Scatter(x=p["ages"], y=p["p10"] / 1e6, name=f"{p['name']}: bad (10th)",
+                                     line=dict(color=color, width=1.5, dash="dot"),
+                                     hovertemplate="Age %{x}: $%{y:.2f}M<extra>" + p["name"] + " 10th pct.</extra>"))
+        fig.update_xaxes(title="Age")
+        fig.update_yaxes(title="$ millions, today's dollars", rangemode="tozero")
+        return ui.div(ui.HTML(plans_table(plans).to_html(index=False, classes="table table-sm plans-table", border=0)),
+                      chart(fig, height=320),
+                      ui.p("Solid lines: typical future. Dotted: bad future (10th percentile).", class_="msg-note"))
+
     # ---- AI summary from Python-formatted numbers, then a number check ----
     @reactive.effect
     @reactive.event(input.summarize)
@@ -291,7 +506,8 @@ def server(input, output, session):
     # ---- downloadable one-page client report ----
     @render.download(filename=lambda: f"retirement_stress_test_{pd.Timestamp.today():%Y-%m-%d}.html")
     def report():
-        yield report_html(sim(), summary_state(), age_rows())
+        plans = saved_plans()
+        yield report_html(sim(), summary_state(), age_rows(), plans_table(plans) if plans else None)
 
 
 app = App(app_ui, server, static_assets=WWW)
